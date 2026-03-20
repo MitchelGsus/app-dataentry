@@ -6,6 +6,15 @@ from pyspark.sql import SparkSession
 # --- 1. CONFIGURACIÓN DE ENTORNO ---
 # Cambia a "PROD" cuando tengas el External Location de ADLS listo
 ENV = "DEV_FREE" 
+def save_to_databricks(df, table_name, user_email):
+    try:
+        # Intentamos obtener la sesión activa de Spark
+        from databricks.connect import DatabricksSession
+        spark = DatabricksSession.builder.getOrCreate()
+    except:
+        # Fallback para entornos que ya tienen spark definido
+        from pyspark.sql import SparkSession
+        spark = SparkSession.builder.getOrCreate()
 
 def save_to_databricks(df, table_name, user_email):
     """
