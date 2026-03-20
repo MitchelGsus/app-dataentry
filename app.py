@@ -13,7 +13,7 @@ def save_to_databricks(df, table_name, user_email):
     """
     # Usamos EXCLUSIVAMENTE la conexión serverless de Databricks
     from databricks.connect import DatabricksSession
-    spark = DatabricksSession.builder.serverless(True).getOrCreate()
+    spark = DatabricksSession.builder.getOrCreate()
     
     # Agregar metadatos de auditoría
     df['ingested_by'] = user_email
