@@ -6,22 +6,20 @@ from pyspark.sql import SparkSession
 # --- 1. CONFIGURACIÓN DE ENTORNO ---
 # Cambia a "PROD" cuando tengas el External Location de ADLS listo
 ENV = "DEV_FREE" 
-def save_to_databricks(df, table_name, user_email):
-    try:
-        # Intentamos obtener la sesión activa de Spark
-        from databricks.connect import DatabricksSession
-        spark = DatabricksSession.builder.getOrCreate()
-    except:
-        # Fallback para entornos que ya tienen spark definido
-        from pyspark.sql import SparkSession
-        spark = SparkSession.builder.getOrCreate()
 
 def save_to_databricks(df, table_name, user_email):
     """
     Función modular para persistir datos. 
     Fácil de switchear entre Metastore local y ADLS Gen2.
     """
-    spark = SparkSession.builder.getOrCreate()
+    try:
+        # Intentamos obtener la sesión activa de Spark (Para Databricks Serverless)
+        from databricks.connect import DatabricksSession
+        spark = DatabricksSession.builder.getOrCreate()
+    except ImportError:
+        # Fallback para entornos que ya tienen spark definido (Local/Free Edition)
+        from pyspark.sql import SparkSession
+        spark = SparkSession.builder.getOrCreate()
     
     # Agregar metadatos de auditoría (DAC)
     df['ingested_by'] = user_email
@@ -81,8 +79,14 @@ if uploaded_file:
             if st.button("🚀 Confirmar e Ingestar en Databricks"):
                 with st.spinner("Escribiendo en el Metastore..."):
                     save_to_databricks(df, "ingesta_manual_pacificosalud", user_email)
-                    st.success(f"¡Éxito! Datos guardados en la tabla: `default.ingesta_manual_pacificosalud`")
+                    st.success("¡Éxito! Datos guardados en la tabla: `default.ingesta_manual_pacificosalud`")
                     st.balloons()
                     
         except Exception as e:
-            st.sidebar.error(f
+            # Aquí estaba el error de sintaxis original
+            st.sidebar.error(f"❌ Error en fechas: {e}")
+            st.error("Revisa el formato de la columna 'fecha' (ej. YYYY-MM-DD)")
+    else:
+        # Faltaba cerrar esta condición en tu copia
+        st.sidebar.error("❌ Esquema inválido")
+        st.error(f"Faltan columnas obligatorias. Se espera: {expected_columns}")
