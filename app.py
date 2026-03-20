@@ -8,35 +8,25 @@ ENV = "DEV_FREE"
 
 def save_to_databricks(df, table_name, user_email):
     """
-    Función modular para persistir datos. 
-    Fácil de switchear entre Metastore local y ADLS Gen2.
+    Función modular para persistir datos usando Databricks Connect.
+    No requiere Java local.
     """
-    try:
-        # Intentamos obtener la sesión activa de Spark (Para Databricks Serverless Apps)
-        from databricks.connect import DatabricksSession
-        spark = DatabricksSession.builder.getOrCreate()
-    except ImportError:
-        # Fallback para entornos que ya tienen spark definido (Local/Free Edition)
-        from pyspark.sql import SparkSession
-        spark = SparkSession.builder.getOrCreate()
+    # Usamos EXCLUSIVAMENTE la conexión serverless de Databricks
+    from databricks.connect import DatabricksSession
+    spark = DatabricksSession.builder.getOrCreate()
     
-    # Agregar metadatos de auditoría (Data Access Control)
+    # Agregar metadatos de auditoría
     df['ingested_by'] = user_email
     df['ingestion_timestamp'] = datetime.now()
     
-    # Convertir Pandas a Spark DataFrame (Infiere esquemas automáticamente)
+    # Convertir Pandas a Spark DataFrame y mandar al cluster
     sdf = spark.createDataFrame(df)
     
     if ENV == "DEV_FREE":
-        # Escritura en el Metastore de Databricks
-        # Se guarda en el schema 'default' por defecto
         sdf.write.mode("append").saveAsTable(f"default.{table_name}")
     else:
         # Lógica para ADLS Gen2 (Futuro)
-        # path = f"abfss://<container>@<storage>.dfs.core.windows.net/raw/{table_name}"
-        # sdf.write.mode("append").format("delta").save(path)
         pass
-
 # --- 2. INTERFAZ DE USUARIO (Streamlit) ---
 st.set_page_config(page_title="Data Entry Portal", layout="wide")
 
