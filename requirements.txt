@@ -1,3 +1,4 @@
 streamlit>=1.31.0
 pandas
-databricks-sdk>=0.20.0
+azure-storage-file-datalake
+azure-identity
