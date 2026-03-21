@@ -19,7 +19,9 @@ def save_to_adls(df, tipo_origen, dominio, user_email):
     respetando la estructura: peps/dataentry/<tipo_origen>/<dominio>/
     """
     from databricks.connect import DatabricksSession
-    spark = DatabricksSession.builder.getOrCreate()
+    
+    # ¡AQUÍ ESTÁ LA MAGIA SERVERLESS! (Única declaración necesaria)
+    spark = DatabricksSession.builder.serverless(True).getOrCreate()
     
     # Agregar metadatos de auditoría
     df['ingested_by'] = user_email
@@ -29,8 +31,6 @@ def save_to_adls(df, tipo_origen, dominio, user_email):
     sdf = spark.createDataFrame(df)
     
     # --- LÓGICA DE ALMACENAMIENTO FÍSICO (Directo a Bronze) ---
-    # Construimos la ruta exacta basada en las selecciones validadas
-    # Ejemplo: abfss://bronze@adlslhcl.dfs.core.windows.net/peps/dataentry/usr/cobr/
     adls_path = f"abfss://bronze@adlslhcl.dfs.core.windows.net/peps/dataentry/{tipo_origen}/{dominio}/"
     
     # Escribimos físicamente en el storage en formato CSV
