@@ -32,7 +32,7 @@ def save_to_adls(df, tipo_origen, dominio, user_email):
        .format("csv") \
        .option("header", "true") \
        .mode("append") \
-       .save(adls_path)))
+       .save(adls_path)
     
 # --- 2. INTERFAZ DE USUARIO (Streamlit) ---
 st.set_page_config(page_title="Data Entry Portal", layout="wide")
