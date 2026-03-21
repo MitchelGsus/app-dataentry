@@ -14,32 +14,30 @@ ESTRUCTURA_DOMINIOS = {
 }
 
 def save_to_adls(df, tipo_origen, dominio, user_email):
-    """
-    Función para guardar archivos directamente en el ADLS Bronze 
-    respetando la estructura: peps/dataentry/<tipo_origen>/<dominio>/
-    """
-    from databricks.connect import DatabricksSession
-    
-    # ¡AQUÍ ESTÁ LA MAGIA SERVERLESS! (Única declaración necesaria)
-    spark = DatabricksSession.builder.serverless(True).getOrCreate()
-    
-    # Agregar metadatos de auditoría
-    df['ingested_by'] = user_email
-    df['ingestion_timestamp'] = datetime.now()
-    
-    # Convertir Pandas a Spark DataFrame
-    sdf = spark.createDataFrame(df)
-    
-    # --- LÓGICA DE ALMACENAMIENTO FÍSICO (Directo a Bronze) ---
-    adls_path = f"abfss://bronze@adlslhcl.dfs.core.windows.net/peps/dataentry/{tipo_origen}/{dominio}/"
-    
-    # Escribimos físicamente en el storage en formato CSV
-    sdf.write \
-       .format("csv") \
-       .option("header", "true") \
-       .mode("append") \
-       .save(adls_path)
+    from databricks.sdk import WorkspaceClient
+    import io
 
+    # En Databricks Apps, la autenticación es automática
+    w = WorkspaceClient()
+
+    # Agregar metadatos
+    df['ingested_by'] = user_email
+    df['ingestion_timestamp'] = datetime.now().isoformat()
+
+    # Convertir DataFrame a CSV en memoria
+    csv_buffer = io.StringIO()
+    df.to_csv(csv_buffer, index=False)
+    csv_bytes = csv_buffer.getvalue().encode('utf-8')
+
+    # Generar nombre único para el archivo
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"dataentry_{timestamp}.csv"
+
+    # Escribir al Volume de Unity Catalog (que mapea a tu ADLS)
+    volume_path = f"/Volumes/tu_catalogo/tu_schema/bronze/peps/dataentry/{tipo_origen}/{dominio}/{filename}"
+
+    w.files.upload(volume_path, io.BytesIO(csv_bytes), overwrite=True)
+    
 # --- 2. INTERFAZ DE USUARIO (Streamlit) ---
 st.set_page_config(page_title="Data Entry Portal", layout="wide")
 
