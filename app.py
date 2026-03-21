@@ -1,8 +1,9 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
+import io
 
-# --- 1. CONFIGURACIÓN DE ENTORNO Y DOMINIOS ---
+# --- 1. CONFIGURACIÓN ---
 ENV = "DESA"
 
 ESTRUCTURA_DOMINIOS = {
@@ -12,45 +13,23 @@ ESTRUCTURA_DOMINIOS = {
 }
 
 def save_to_adls(df, tipo_origen, dominio, user_email, filename):
-    from databricks.connect import DatabricksSession
+    from databricks.sdk import WorkspaceClient
 
-    spark = DatabricksSession.builder.serverless().getOrCreate()
+    w = WorkspaceClient()
 
     # Agregar metadatos de auditoría
     df['ingested_by'] = user_email
     df['ingestion_timestamp'] = datetime.now().isoformat()
 
-    sdf = spark.createDataFrame(df)
+    # Convertir a CSV en memoria
+    csv_buffer = io.StringIO()
+    df.to_csv(csv_buffer, index=False)
+    csv_bytes = csv_buffer.getvalue().encode('utf-8')
 
-    # Paso 1: Escribir como un solo archivo en carpeta temporal
-    base_path = f"abfss://bronze@adlslhcl.dfs.core.windows.net/peps/dataentry/{tipo_origen}/{dominio}"
-    temp_path = f"{base_path}/_temp_{datetime.now().strftime('%Y%m%d%H%M%S')}"
+    # Subir con el nombre exacto del usuario al Volume (que apunta a tu ADLS)
+    volume_path = f"/Volumes/tu_catalogo/tu_schema/bronze_volume/{tipo_origen}/{dominio}/{filename}"
 
-    sdf.coalesce(1) \
-       .write \
-       .format("csv") \
-       .option("header", "true") \
-       .mode("overwrite") \
-       .save(temp_path)
-
-    # Paso 2: Renombrar el part-00000 al nombre original del usuario
-    hadoop = spark._jsc.hadoopConfiguration()
-    uri = spark._jvm.java.net.URI(base_path)
-    fs = spark._jvm.org.apache.hadoop.fs.FileSystem.get(uri, hadoop)
-
-    # Buscar el archivo part-00000 en la carpeta temporal
-    temp_hadoop_path = spark._jvm.org.apache.hadoop.fs.Path(temp_path)
-    files = fs.listStatus(temp_hadoop_path)
-
-    for f in files:
-        name = f.getPath().getName()
-        if name.startswith("part-"):
-            old_path = f.getPath()
-            new_path = spark._jvm.org.apache.hadoop.fs.Path(f"{base_path}/{filename}")
-            fs.rename(old_path, new_path)
-
-    # Paso 3: Eliminar la carpeta temporal
-    fs.delete(temp_hadoop_path, True)
+    w.files.upload(volume_path, io.BytesIO(csv_bytes), overwrite=True)
 
 
 # --- 2. INTERFAZ DE USUARIO ---
