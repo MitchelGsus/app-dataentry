@@ -13,26 +13,23 @@ ESTRUCTURA_DOMINIOS = {
     "ext": ["proveedores", "clientes", "marketing"] # Reemplaza con tus dominios reales
 }
 
-def save_to_adls(df, tipo_origen, dominio, user_email):
-    from databricks.connect import DatabricksSession
+def save_to_adls(df, tipo_origen, dominio, user_email, filename):
+    from databricks.sdk import WorkspaceClient
+    import io
 
-    spark = DatabricksSession.builder.serverless().getOrCreate()
+    w = WorkspaceClient()
 
-    # Agregar metadatos de auditoría
     df['ingested_by'] = user_email
     df['ingestion_timestamp'] = datetime.now().isoformat()
 
-    # Convertir Pandas a Spark DataFrame
-    sdf = spark.createDataFrame(df)
+    csv_buffer = io.StringIO()
+    df.to_csv(csv_buffer, index=False)
+    csv_bytes = csv_buffer.getvalue().encode('utf-8')
 
-    # Escribir en ADLS
-    adls_path = f"abfss://bronze@adlslhcl.dfs.core.windows.net/peps/dataentry/{tipo_origen}/{dominio}/"
+    # Subir con el nombre exacto del usuario
+    dbfs_path = f"/peps/dataentry/{tipo_origen}/{dominio}/{filename}"
 
-    sdf.write \
-       .format("csv") \
-       .option("header", "true") \
-       .mode("append") \
-       .save(adls_path)
+    w.dbfs.put(dbfs_path, io.BytesIO(csv_bytes), overwrite=True)
     
 # --- 2. INTERFAZ DE USUARIO (Streamlit) ---
 st.set_page_config(page_title="Data Entry Portal", layout="wide")
