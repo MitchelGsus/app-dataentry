@@ -14,29 +14,39 @@ ESTRUCTURA_DOMINIOS = {
 }
 
 def save_to_adls(df, tipo_origen, dominio, user_email):
-    from databricks.sdk import WorkspaceClient
+    from azure.storage.filedatalake import DataLakeServiceClient
+    from azure.identity import DefaultAzureCredential
     import io
-
-    # En Databricks Apps, la autenticación es automática
-    w = WorkspaceClient()
 
     # Agregar metadatos
     df['ingested_by'] = user_email
     df['ingestion_timestamp'] = datetime.now().isoformat()
 
-    # Convertir DataFrame a CSV en memoria
+    # Convertir a CSV en memoria
     csv_buffer = io.StringIO()
     df.to_csv(csv_buffer, index=False)
     csv_bytes = csv_buffer.getvalue().encode('utf-8')
 
-    # Generar nombre único para el archivo
+    # Nombre único del archivo
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"dataentry_{timestamp}.csv"
 
-    # Escribir al Volume de Unity Catalog (que mapea a tu ADLS)
-    volume_path = f"/Volumes/tu_catalogo/tu_schema/bronze/peps/dataentry/{tipo_origen}/{dominio}/{filename}"
+    # Conectar directo al ADLS
+    credential = DefaultAzureCredential()
+    service_client = DataLakeServiceClient(
+        account_url="https://adlslhcl.dfs.core.windows.net",
+        credential=credential
+    )
 
-    w.files.upload(volume_path, io.BytesIO(csv_bytes), overwrite=True)
+    # Obtener el filesystem (container) y la ruta
+    file_system_client = service_client.get_file_system_client("bronze")
+    directory_path = f"peps/dataentry/{tipo_origen}/{dominio}"
+    directory_client = file_system_client.get_directory_client(directory_path)
+
+    # Crear y subir el archivo
+    file_client = directory_client.create_file(filename)
+    file_client.append_data(csv_bytes, offset=0, length=len(csv_bytes))
+    file_client.flush_data(len(csv_bytes))
     
 # --- 2. INTERFAZ DE USUARIO (Streamlit) ---
 st.set_page_config(page_title="Data Entry Portal", layout="wide")
