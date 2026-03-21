@@ -3,15 +3,13 @@ import pandas as pd
 from datetime import datetime
 
 # --- 1. CONFIGURACIÓN DE ENTORNO ---
-# Cambia a "PROD" cuando tengas el External Location de ADLS listo
-ENV = "DEV_FREE" 
+ENV = "PROD" 
 
-def save_to_databricks(df, table_name, user_email):
+def save_to_adls(df, folder_name, user_email):
     """
-    Función modular para persistir datos usando Databricks Connect.
-    No requiere Java local.
+    Función para guardar archivos directamente en el ADLS Bronze.
+    Cero tablas, cero Unity Catalog. Solo archivos crudos.
     """
-    # Usamos EXCLUSIVAMENTE la conexión serverless de Databricks
     from databricks.connect import DatabricksSession
     spark = DatabricksSession.builder.getOrCreate()
     
@@ -19,22 +17,29 @@ def save_to_databricks(df, table_name, user_email):
     df['ingested_by'] = user_email
     df['ingestion_timestamp'] = datetime.now()
     
-    # Convertir Pandas a Spark DataFrame y mandar al cluster
+    # Convertir Pandas a Spark DataFrame
     sdf = spark.createDataFrame(df)
     
-    if ENV == "DEV_FREE":
-        sdf.write.mode("append").saveAsTable(f"default.{table_name}")
-    else:
-        # Lógica para ADLS Gen2 (Futuro)
-        pass
+    # --- LÓGICA DE ALMACENAMIENTO FÍSICO (Directo a Bronze) ---
+    # Usamos la External Location para ir directo al contenedor
+    # Guardará los archivos dentro de la carpeta que el usuario escriba
+    adls_path = f"abfss://bronze@adlslhcl.dfs.core.windows.net/dataentry_usr/{folder_name}/"
+    
+    # Escribimos físicamente en el storage en formato CSV
+    # .save() tira el archivo al disco sin registrar NADA en el catálogo
+    sdf.write \
+       .format("csv") \
+       .option("header", "true") \
+       .mode("append") \
+       .save(adls_path)
+
 # --- 2. INTERFAZ DE USUARIO (Streamlit) ---
 st.set_page_config(page_title="Data Entry Portal", layout="wide")
 
 # Obtener identidad desde Headers de Databricks
-# En local/codespaces usará el valor por defecto
 user_email = st.context.headers.get("X-Forwarded-Email", "desarrollador_local@empresa.com")
 
-st.title("📥 Portal de Ingesta Dinámica")
+st.title("📥 Portal de Ingesta Dinámica (Directo a Bronze)")
 st.markdown(f"**Usuario:** `{user_email}` | **Entorno:** `{ENV}`")
 st.divider()
 
@@ -51,16 +56,14 @@ if uploaded_file:
     # --- 3. VALIDACIÓN Y CONFIGURACIÓN DINÁMICA ---
     st.sidebar.header("⚙️ Opciones de Ingesta")
     
-    # Mostrar el esquema detectado dinámicamente
     columnas_detectadas = list(df.columns)
     st.sidebar.success(f"✅ Esquema detectado: {len(columnas_detectadas)} columnas")
     with st.sidebar.expander("Ver columnas detectadas"):
         st.write(columnas_detectadas)
     
-    # Input para que el usuario nombre su tabla destino
-    # Limpiamos espacios y pasamos a minúsculas por buenas prácticas de BD
-    table_name = st.sidebar.text_input(
-        "📝 Nombre de la tabla destino:", 
+    # Input para que el usuario nombre la carpeta destino
+    folder_name = st.sidebar.text_input(
+        "📁 Nombre de la carpeta destino:", 
         value="nueva_ingesta"
     ).strip().replace(" ", "_").lower()
     
@@ -68,14 +71,13 @@ if uploaded_file:
     
     # Botón de Ingesta
     if st.sidebar.button("🚀 Confirmar e Ingestar"):
-        if table_name == "":
-            st.sidebar.error("Por favor, ingresa un nombre válido para la tabla.")
+        if folder_name == "":
+            st.sidebar.error("Por favor, ingresa un nombre válido para la carpeta.")
         else:
-            with st.spinner(f"Escribiendo en Databricks (default.{table_name})..."):
+            with st.spinner(f"Escribiendo directamente en ADLS (bronze/.../{folder_name})..."):
                 try:
-                    # Ejecutar la función de guardado
-                    save_to_databricks(df, table_name, user_email)
-                    st.success(f"¡Éxito! Datos guardados en la tabla: `default.{table_name}`")
+                    save_to_adls(df, folder_name, user_email)
+                    st.success(f"¡Éxito! Archivo guardado físicamente en la carpeta: `{folder_name}`")
                     st.balloons()
                 except Exception as e:
                     st.error(f"❌ Error interno al guardar los datos: {e}")
