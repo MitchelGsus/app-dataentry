@@ -2,13 +2,21 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 
-# --- 1. CONFIGURACIÓN DE ENTORNO ---
-ENV = "PROD" 
+# --- 1. CONFIGURACIÓN DE ENTORNO Y DOMINIOS ---
+ENV = "DESA" 
 
-def save_to_adls(df, folder_name, user_email):
+# DICCIONARIO DE DOMINIOS PERMITIDOS
+# Aquí defines la estructura de carpetas válidas de tu ADLS
+ESTRUCTURA_DOMINIOS = {
+    "usr": ["cobr", "dyan", "pric"],
+    "int": ["finanzas", "rrhh", "operaciones"], # Reemplaza con tus dominios reales
+    "ext": ["proveedores", "clientes", "marketing"] # Reemplaza con tus dominios reales
+}
+
+def save_to_adls(df, tipo_origen, dominio, user_email):
     """
-    Función para guardar archivos directamente en el ADLS Bronze.
-    Cero tablas, cero Unity Catalog. Solo archivos crudos.
+    Función para guardar archivos directamente en el ADLS Bronze 
+    respetando la estructura: peps/dataentry/<tipo_origen>/<dominio>/
     """
     from databricks.connect import DatabricksSession
     spark = DatabricksSession.builder.getOrCreate()
@@ -21,12 +29,11 @@ def save_to_adls(df, folder_name, user_email):
     sdf = spark.createDataFrame(df)
     
     # --- LÓGICA DE ALMACENAMIENTO FÍSICO (Directo a Bronze) ---
-    # Usamos la External Location para ir directo al contenedor
-    # Guardará los archivos dentro de la carpeta que el usuario escriba
-    adls_path = f"abfss://bronze@adlslhcl.dfs.core.windows.net/dataentry_usr/{folder_name}/"
+    # Construimos la ruta exacta basada en las selecciones validadas
+    # Ejemplo: abfss://bronze@adlslhcl.dfs.core.windows.net/peps/dataentry/usr/cobr/
+    adls_path = f"abfss://bronze@adlslhcl.dfs.core.windows.net/peps/dataentry/{tipo_origen}/{dominio}/"
     
     # Escribimos físicamente en el storage en formato CSV
-    # .save() tira el archivo al disco sin registrar NADA en el catálogo
     sdf.write \
        .format("csv") \
        .option("header", "true") \
@@ -54,30 +61,34 @@ if uploaded_file:
     st.dataframe(df.head(10), use_container_width=True)
     
     # --- 3. VALIDACIÓN Y CONFIGURACIÓN DINÁMICA ---
-    st.sidebar.header("⚙️ Opciones de Ingesta")
+    st.sidebar.header("⚙️ Ruta de Destino")
     
-    columnas_detectadas = list(df.columns)
-    st.sidebar.success(f"✅ Esquema detectado: {len(columnas_detectadas)} columnas")
-    with st.sidebar.expander("Ver columnas detectadas"):
-        st.write(columnas_detectadas)
+    # Selector de Tipo de Origen (Las "carpetas padre")
+    tipos_origen_disponibles = list(ESTRUCTURA_DOMINIOS.keys())
+    tipo_origen_seleccionado = st.sidebar.selectbox(
+        "📂 1. Selecciona el Tipo de Origen:", 
+        options=tipos_origen_disponibles
+    )
     
-    # Input para que el usuario nombre la carpeta destino
-    folder_name = st.sidebar.text_input(
-        "📁 Nombre de la carpeta destino:", 
-        value="nueva_ingesta"
-    ).strip().replace(" ", "_").lower()
+    # Selector de Dominio (Las "carpetas hijo", cambia según el Origen seleccionado)
+    dominios_disponibles = ESTRUCTURA_DOMINIOS[tipo_origen_seleccionado]
+    dominio_seleccionado = st.sidebar.selectbox(
+        "📁 2. Selecciona el Dominio:", 
+        options=dominios_disponibles
+    )
+    
+    # Mostrar la ruta final generada para que el usuario verifique
+    ruta_visual = f"/peps/dataentry/{tipo_origen_seleccionado}/{dominio_seleccionado}/"
+    st.sidebar.info(f"📍 Destino Final:\n`{ruta_visual}`")
     
     st.sidebar.divider()
     
     # Botón de Ingesta
     if st.sidebar.button("🚀 Confirmar e Ingestar"):
-        if folder_name == "":
-            st.sidebar.error("Por favor, ingresa un nombre válido para la carpeta.")
-        else:
-            with st.spinner(f"Escribiendo directamente en ADLS (bronze/.../{folder_name})..."):
-                try:
-                    save_to_adls(df, folder_name, user_email)
-                    st.success(f"¡Éxito! Archivo guardado físicamente en la carpeta: `{folder_name}`")
-                    st.balloons()
-                except Exception as e:
-                    st.error(f"❌ Error interno al guardar los datos: {e}")
+        with st.spinner(f"Escribiendo en ADLS ({ruta_visual})..."):
+            try:
+                save_to_adls(df, tipo_origen_seleccionado, dominio_seleccionado, user_email)
+                st.success(f"¡Éxito! Archivo guardado físicamente en la ruta: `{ruta_visual}`")
+                st.balloons()
+            except Exception as e:
+                st.error(f"❌ Error interno al guardar los datos: {e}")
