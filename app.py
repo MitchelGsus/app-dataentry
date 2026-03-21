@@ -14,39 +14,25 @@ ESTRUCTURA_DOMINIOS = {
 }
 
 def save_to_adls(df, tipo_origen, dominio, user_email):
-    from azure.storage.filedatalake import DataLakeServiceClient
-    from azure.identity import DefaultAzureCredential
-    import io
+    from databricks.connect import DatabricksSession
 
-    # Agregar metadatos
+    spark = DatabricksSession.builder.serverless().getOrCreate()
+
+    # Agregar metadatos de auditoría
     df['ingested_by'] = user_email
     df['ingestion_timestamp'] = datetime.now().isoformat()
 
-    # Convertir a CSV en memoria
-    csv_buffer = io.StringIO()
-    df.to_csv(csv_buffer, index=False)
-    csv_bytes = csv_buffer.getvalue().encode('utf-8')
+    # Convertir Pandas a Spark DataFrame
+    sdf = spark.createDataFrame(df)
 
-    # Nombre único del archivo
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"dataentry_{timestamp}.csv"
+    # Escribir en ADLS
+    adls_path = f"abfss://bronze@adlslhcl.dfs.core.windows.net/peps/dataentry/{tipo_origen}/{dominio}/"
 
-    # Conectar directo al ADLS
-    credential = DefaultAzureCredential()
-    service_client = DataLakeServiceClient(
-        account_url="https://adlslhcl.dfs.core.windows.net",
-        credential=credential
-    )
-
-    # Obtener el filesystem (container) y la ruta
-    file_system_client = service_client.get_file_system_client("bronze")
-    directory_path = f"peps/dataentry/{tipo_origen}/{dominio}"
-    directory_client = file_system_client.get_directory_client(directory_path)
-
-    # Crear y subir el archivo
-    file_client = directory_client.create_file(filename)
-    file_client.append_data(csv_bytes, offset=0, length=len(csv_bytes))
-    file_client.flush_data(len(csv_bytes))
+    sdf.write \
+       .format("csv") \
+       .option("header", "true") \
+       .mode("append") \
+       .save(adls_path)))
     
 # --- 2. INTERFAZ DE USUARIO (Streamlit) ---
 st.set_page_config(page_title="Data Entry Portal", layout="wide")
